@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Card, Header, Input, Page, PrimaryButton, colors } from "./ui/ui.jsx";
+import { Card, Header, Input, Page, PrimaryButton, colors } from "../ui/ui.jsx";
 
 export default function Onboarding({ ctx }) {
   const nav = useNavigate();
