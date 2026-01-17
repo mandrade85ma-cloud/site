@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!-- Viewport mobile correto -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Título do separador -->
+    <title>JOGA</title>
+
+    <!-- Favicon (separador do browser) -->
+    <link rel="icon" type="image/png" href="/joga.png" />
+
+    <!-- PWA / Mobile -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#16a34a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <link rel="apple-touch-icon" href="/pwa-192.png" />
+
+    <!-- Tipografia base (opcional, mas recomendada) -->
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        background: #ffffff;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="root"></div>
+
+    <!-- Entrada Vite -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
