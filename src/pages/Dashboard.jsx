@@ -11,13 +11,11 @@ import {
   PrimaryButton,
   SectionTitle,
   colors,
-  GhostButton,
 } from "../ui/ui";
 
 function formatDT(dt) {
   try {
     return new Date(dt).toLocaleString("pt-PT", {
-      weekday: "short",
       day: "2-digit",
       month: "2-digit",
       hour: "2-digit",
@@ -28,186 +26,139 @@ function formatDT(dt) {
   }
 }
 
-function makeToken(len = 18) {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let out = "";
-  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
-}
-
 export default function Dashboard({ ctx }) {
   const nav = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
-  const [events, setEvents] = useState([]);
+  const [groups, setGroups] = useState([]);
 
-  // criar evento (admin/organizer)
-  const [title, setTitle] = useState("");
-  const [startsAt, setStartsAt] = useState("");
-  const [location, setLocation] = useState("");
-  const [needed, setNeeded] = useState(10);
-  const [teamsEnabled, setTeamsEnabled] = useState(false);
+  // criar grupo
+  const [groupName, setGroupName] = useState("");
 
   const role = ctx.profile?.role || "player";
   const isAdmin = role === "admin";
   const isOrganizer = role === "organizer";
-  const canCreate = isAdmin || isOrganizer;
+  const canCreateGroups = isAdmin || isOrganizer;
 
-  // segurança: se não há sessão, volta ao login
+  async function load() {
+    setLoading(true);
+    setMsg("");
+
+    if (!ctx.profile?.id) {
+      setGroups([]);
+      setLoading(false);
+      return;
+    }
+
+    const uid = ctx.profile.id;
+
+    // 1) Admin: vê tudo
+    if (isAdmin) {
+      const all = await supabase
+        .from("groups")
+        .select("id,name,owner_id,created_at")
+        .order("created_at", { ascending: false });
+
+      if (all.error) setMsg("Grupos: " + all.error.message);
+      setGroups(all.data || []);
+      setLoading(false);
+      return;
+    }
+
+    // 2) Todos: grupos onde é member
+    const memberOf = await supabase
+      .from("group_members")
+      .select("group_id, groups:group_id (id,name,owner_id,created_at)")
+      .eq("user_id", uid);
+
+    if (memberOf.error) {
+      setMsg((p) => (p ? p + " | " : "") + "Membro de: " + memberOf.error.message);
+    }
+
+    const memberGroups = (memberOf.data || [])
+      .map((r) => r.groups)
+      .filter(Boolean);
+
+    // 3) Organizer: também vê grupos que criou
+    let ownedGroups = [];
+    if (isOrganizer) {
+      const mine = await supabase
+        .from("groups")
+        .select("id,name,owner_id,created_at")
+        .eq("owner_id", uid)
+        .order("created_at", { ascending: false });
+
+      if (mine.error) {
+        setMsg((p) => (p ? p + " | " : "") + "Meus: " + mine.error.message);
+      }
+      ownedGroups = mine.data || [];
+    }
+
+    // merge sem duplicados
+    const map = new Map();
+    for (const g of [...ownedGroups, ...memberGroups]) {
+      if (g?.id) map.set(g.id, g);
+    }
+
+    // ordenar por created_at desc (fallback)
+    const merged = Array.from(map.values()).sort((a, b) => {
+      const da = a?.created_at ? new Date(a.created_at).getTime() : 0;
+      const db = b?.created_at ? new Date(b.created_at).getTime() : 0;
+      return db - da;
+    });
+
+    setGroups(merged);
+    setLoading(false);
+  }
+
   useEffect(() => {
     if (!ctx.session) nav("/login", { replace: true });
   }, [ctx.session]);
 
-  async function load() {
-    setMsg("");
-    setLoading(true);
-
-    try {
-      if (!ctx.session?.user?.id) {
-        setMsg("Sem sessão.");
-        setEvents([]);
-        return;
-      }
-
-      if (!ctx.profile?.id) {
-        setMsg("Perfil ainda a carregar…");
-        setEvents([]);
-        return;
-      }
-
-      console.log("[dashboard] role=", role, "uid=", ctx.session.user.id);
-
-      // ADMIN: vê todos
-      if (isAdmin) {
-        const q = await supabase
-          .from("events")
-          .select("id,title,starts_at,location,needed_players,status,teams_enabled,invite_token,created_by,created_at")
-          .eq("status", "scheduled")
-          .order("starts_at", { ascending: true });
-
-        if (q.error) throw q.error;
-        setEvents(q.data || []);
-        return;
-      }
-
-      // ORGANIZER: vê os seus
-      if (isOrganizer) {
-        const q = await supabase
-          .from("events")
-          .select("id,title,starts_at,location,needed_players,status,teams_enabled,invite_token,created_by,created_at")
-          .eq("created_by", ctx.profile.id)
-          .eq("status", "scheduled")
-          .order("starts_at", { ascending: true });
-
-        if (q.error) throw q.error;
-        setEvents(q.data || []);
-        return;
-      }
-
-      // PLAYER: vê eventos onde tem RSVP
-      const rs = await supabase
-        .from("event_rsvps")
-        .select("event_id, events:event_id (id,title,starts_at,location,needed_players,status,teams_enabled,invite_token,created_by,created_at)")
-        .eq("user_id", ctx.profile.id);
-
-      if (rs.error) throw rs.error;
-
-      const list = (rs.data || [])
-        .map((r) => r.events)
-        .filter(Boolean)
-        .filter((e) => e.status === "scheduled")
-        .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime());
-
-      setEvents(list);
-    } catch (e) {
-      console.error("[dashboard] load error:", e);
-      setMsg(e?.message ? `Erro: ${e.message}` : "Erro a carregar.");
-      setEvents([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    // só carrega quando profile já existe (evita loops)
-    if (!ctx.profile?.id) return;
+    if (!ctx.profile) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ctx.profile?.id]);
+  }, [ctx.profile?.id, ctx.profile?.role]);
 
-  async function createEvent() {
+  async function createGroup() {
     setMsg("");
 
-    if (!canCreate) return setMsg("Sem permissões para criar eventos.");
+    if (!canCreateGroups) return setMsg("Só admin/organizer pode criar grupos.");
 
-    const t = (title || "").trim();
-    if (!t) return setMsg("Mete o título.");
-    if (!startsAt) return setMsg("Mete data/hora.");
-    const loc = (location || "").trim();
-    if (!loc) return setMsg("Mete o local.");
+    const n = groupName.trim();
+    if (n.length < 2) return setMsg("Nome do grupo muito curto.");
 
-    const n = Number(needed);
-    if (!Number.isFinite(n) || n < 2) return setMsg("Nº mínimo inválido (>=2).");
+    const ins = await supabase
+      .from("groups")
+      .insert({
+        name: n,
+        owner_id: ctx.profile.id,
+      })
+      .select("id")
+      .single();
 
-    const inviteToken = makeToken();
+    if (ins.error) return setMsg("Criar grupo: " + ins.error.message);
 
-    const ins = await supabase.from("events").insert({
-      created_by: ctx.profile.id,
-      title: t,
-      starts_at: new Date(startsAt).toISOString(),
-      location: loc,
-      needed_players: n,
-      teams_enabled: !!teamsEnabled,
-      status: "scheduled",
-      invite_token: inviteToken,
-    });
-
-    if (ins.error) return setMsg("Criar evento: " + ins.error.message);
-
-    setTitle("");
-    setStartsAt("");
-    setLocation("");
-    setNeeded(10);
-    setTeamsEnabled(false);
-
+    setGroupName("");
     await load();
-    setMsg("Evento criado ✅");
+    if (ins.data?.id) nav(`/groups/${ins.data.id}`);
   }
 
   const rolePill = useMemo(() => {
-    if (isAdmin) return <Pill label="ADMIN" tone="dark" />;
-    if (isOrganizer) return <Pill label="ORGANIZER" tone="dark" />;
-    return <Pill label="PLAYER" tone="gray" />;
+    if (isAdmin) return <Pill label="Admin" tone="dark" />;
+    if (isOrganizer) return <Pill label="Organizer" tone="gray" />;
+    return <Pill label="Player" tone="gray" />;
   }, [isAdmin, isOrganizer]);
 
-  if (!ctx.profile) {
-    return (
-      <Page>
-        <div style={{ padding: 20 }}>A carregar perfil…</div>
-      </Page>
-    );
-  }
-
-  if (loading) {
-    return (
-      <Page>
-        <Header kicker="Menu" title="JOGA" right={rolePill} />
-
-        <Card>
-          <div style={{ fontWeight: 900 }}>A carregar…</div>
-          <div style={{ marginTop: 6, color: colors.sub, fontWeight: 800 }}>
-            {msg || "—"}
-          </div>
-        </Card>
-      </Page>
-    );
-  }
+  if (!ctx.profile) return <Page><div>A carregar…</div></Page>;
+  if (loading) return <Page><div>A carregar…</div></Page>;
 
   return (
     <Page>
-      <Header kicker="Menu" title="" right={rolePill} />
+      <Header kicker="Menu" title="Grupos" right={rolePill} />
 
       {msg && (
         <Card
@@ -221,79 +172,59 @@ export default function Dashboard({ ctx }) {
         </Card>
       )}
 
-      {canCreate && (
+      {canCreateGroups && (
         <>
-          <SectionTitle>Criar evento</SectionTitle>
+          <SectionTitle>Criar grupo</SectionTitle>
           <Card>
-            <Input label="Título" value={title} onChange={(e) => setTitle(e.target.value)} />
             <Input
-              label="Data / hora"
-              type="datetime-local"
-              value={startsAt}
-              onChange={(e) => setStartsAt(e.target.value)}
+              label="Nome do grupo"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="Ex: Albogas 6F"
             />
-            <Input label="Local" value={location} onChange={(e) => setLocation(e.target.value)} />
-            <Input
-              label="Nº mínimo"
-              type="number"
-              min={2}
-              value={needed}
-              onChange={(e) => setNeeded(e.target.value)}
-            />
-
-            <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center" }}>
-              <input
-                id="teams_enabled"
-                type="checkbox"
-                checked={teamsEnabled}
-                onChange={(e) => setTeamsEnabled(e.target.checked)}
-              />
-              <label htmlFor="teams_enabled" style={{ fontWeight: 900, color: colors.text }}>
-                Equipas equilibradas
-              </label>
-            </div>
-
             <div style={{ marginTop: 12 }}>
-              <PrimaryButton onClick={createEvent}>Criar evento</PrimaryButton>
+              <PrimaryButton onClick={createGroup}>Criar grupo</PrimaryButton>
             </div>
           </Card>
         </>
       )}
 
-      <SectionTitle>Eventos ativos</SectionTitle>
+      <SectionTitle>Os teus grupos</SectionTitle>
       <div style={{ display: "grid", gap: 12 }}>
-        {events.length === 0 ? (
+        {groups.length === 0 ? (
           <Card>
-            <div style={{ color: colors.sub, fontWeight: 800 }}>Sem eventos ativos.</div>
+            <div style={{ color: colors.sub, fontWeight: 800 }}>
+              Não tens grupos ainda.
+            </div>
+            <div style={{ color: colors.sub, fontWeight: 700, marginTop: 6 }}>
+              Se foste convidado, abre o link do convite.
+            </div>
           </Card>
         ) : (
-          events.map((e) => (
-            <Card key={e.id} onClick={() => nav(`/events/${e.id}`)} style={{ cursor: "pointer" }}>
+          groups.map((g) => (
+            <Card key={g.id} onClick={() => nav(`/groups/${g.id}`)}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <div>
-                  <div style={{ fontWeight: 900, fontSize: 16 }}>{e.title || "Evento"}</div>
-                  <div style={{ color: colors.sub, marginTop: 4, fontSize: 13, fontWeight: 800 }}>
-                    {e.starts_at ? formatDT(e.starts_at) : ""}
-                    {e.location ? ` · ${e.location}` : ""}
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>{g.name || "Grupo"}</div>
+                  <div style={{ color: colors.sub, fontWeight: 700, fontSize: 13, marginTop: 4 }}>
+                    {g.created_at ? `Criado ${formatDT(g.created_at)}` : ""}
                   </div>
                 </div>
-
-                <div style={{ display: "flex", gap: 8, flexDirection: "column", alignItems: "flex-end" }}>
-                  <Pill label="🟢 Ativo" tone="green" />
-                  {e.teams_enabled ? <Pill label="⚽ Equipas" tone="gray" /> : null}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+                  {g.owner_id === ctx.profile.id ? (
+                    <Pill label="Dono" tone="green" />
+                  ) : (
+                    <Pill label="Membro" tone="gray" />
+                  )}
                 </div>
               </div>
 
-              <div style={{ marginTop: 10, color: colors.sub, fontSize: 12, fontWeight: 800 }}>
-                Abre para ver detalhe e convite.
+              <div style={{ marginTop: 10, color: colors.sub, fontWeight: 700, fontSize: 12 }}>
+                Toca para ver eventos ativos.
               </div>
             </Card>
           ))
         )}
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <GhostButton onClick={load}>Recarregar</GhostButton>
       </div>
     </Page>
   );
