@@ -142,7 +142,7 @@ export default function App() {
       src={logo}
       alt="JOGA"
       style={{
-        height: 40,
+        height: 90,
         width: "auto",
         display: "block",
       }}
