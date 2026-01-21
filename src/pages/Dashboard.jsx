@@ -32,6 +32,7 @@ export default function Dashboard({ ctx }) {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState("");
 
+  const [events, setEvents] = useState([]);
   const [groups, setGroups] = useState([]);
 
   // criar grupo
@@ -45,29 +46,85 @@ export default function Dashboard({ ctx }) {
   async function load() {
     setLoading(true);
     setMsg("");
+    setEvents([]);
+    setGroups([]);
 
     if (!ctx.profile?.id) {
-      setGroups([]);
       setLoading(false);
       return;
     }
 
     const uid = ctx.profile.id;
 
-    // 1) Admin: vê tudo
+    // ===== A) EVENTOS ATIVOS ONDE O USER VAI PARTICIPAR (rsvp accepted) =====
+    // Isto é o que faltava ao player.
+    const rsvp = await supabase
+      .from("event_rsvps")
+      .select(
+        `
+        event_id,
+        rsvp,
+        events:event_id (
+          id, title, starts_at, location, needed_players, teams_enabled, status, group_id, created_by
+        )
+      `
+      )
+      .eq("user_id", uid)
+      .eq("rsvp", "accepted");
+
+    if (rsvp.error) {
+      setMsg((p) => (p ? p + " | " : "") + "RSVP: " + rsvp.error.message);
+    }
+
+    const eventsFromRsvp = (rsvp.data || [])
+      .map((row) => row.events)
+      .filter((e) => e && e.status === "scheduled");
+
+    // ===== B) Admin/Organizer: também vê eventos ativos que criou =====
+    let eventsCreated = [];
+    if (isAdmin || isOrganizer) {
+      const mine = await supabase
+        .from("events")
+        .select("id,title,starts_at,location,needed_players,teams_enabled,status,group_id,created_by")
+        .eq("created_by", uid)
+        .eq("status", "scheduled")
+        .order("starts_at", { ascending: true });
+
+      if (mine.error) {
+        setMsg((p) => (p ? p + " | " : "") + "Meus eventos: " + mine.error.message);
+      } else {
+        eventsCreated = mine.data || [];
+      }
+    }
+
+    // merge eventos sem duplicados
+    const mapEvents = new Map();
+    for (const e of [...eventsFromRsvp, ...eventsCreated]) {
+      if (e?.id) mapEvents.set(e.id, e);
+    }
+
+    const mergedEvents = Array.from(mapEvents.values()).sort((a, b) => {
+      const da = a?.starts_at ? new Date(a.starts_at).getTime() : 0;
+      const db = b?.starts_at ? new Date(b.starts_at).getTime() : 0;
+      return da - db;
+    });
+
+    setEvents(mergedEvents);
+
+    // ===== C) GRUPOS (mantém como estava, mas agora é secundário) =====
     if (isAdmin) {
       const all = await supabase
         .from("groups")
         .select("id,name,owner_id,created_at")
         .order("created_at", { ascending: false });
 
-      if (all.error) setMsg("Grupos: " + all.error.message);
+      if (all.error) setMsg((p) => (p ? p + " | " : "") + "Grupos: " + all.error.message);
       setGroups(all.data || []);
       setLoading(false);
       return;
     }
 
-    // 2) Todos: grupos onde é member
+    // grupos onde é member
     const memberOf = await supabase
       .from("group_members")
       .select("group_id, groups:group_id (id,name,owner_id,created_at)")
@@ -77,11 +134,9 @@ export default function Dashboard({ ctx }) {
       setMsg((p) => (p ? p + " | " : "") + "Membro de: " + memberOf.error.message);
     }
 
-    const memberGroups = (memberOf.data || [])
-      .map((r) => r.groups)
-      .filter(Boolean);
+    const memberGroups = (memberOf.data || []).map((r) => r.groups).filter(Boolean);
 
-    // 3) Organizer: também vê grupos que criou
+    // organizer: também os que criou
     let ownedGroups = [];
     if (isOrganizer) {
       const mine = await supabase
@@ -90,32 +145,28 @@ export default function Dashboard({ ctx }) {
         .eq("owner_id", uid)
         .order("created_at", { ascending: false });
 
-      if (mine.error) {
-        setMsg((p) => (p ? p + " | " : "") + "Meus: " + mine.error.message);
-      }
+      if (mine.error) setMsg((p) => (p ? p + " | " : "") + "Meus: " + mine.error.message);
       ownedGroups = mine.data || [];
     }
 
-    // merge sem duplicados
-    const map = new Map();
+    const mapGroups = new Map();
     for (const g of [...ownedGroups, ...memberGroups]) {
-      if (g?.id) map.set(g.id, g);
+      if (g?.id) mapGroups.set(g.id, g);
     }
 
-    // ordenar por created_at desc (fallback)
-    const merged = Array.from(map.values()).sort((a, b) => {
+    const mergedGroups = Array.from(mapGroups.values()).sort((a, b) => {
       const da = a?.created_at ? new Date(a.created_at).getTime() : 0;
       const db = b?.created_at ? new Date(b.created_at).getTime() : 0;
       return db - da;
     });
 
-    setGroups(merged);
+    setGroups(mergedGroups);
     setLoading(false);
   }
 
   useEffect(() => {
     if (!ctx.session) nav("/login", { replace: true });
-  }, [ctx.session]);
+  }, [ctx.session, nav]);
 
   useEffect(() => {
     if (!ctx.profile) return;
@@ -125,7 +176,6 @@ export default function Dashboard({ ctx }) {
 
   async function createGroup() {
     setMsg("");
-
     if (!canCreateGroups) return setMsg("Só admin/organizer pode criar grupos.");
 
     const n = groupName.trim();
@@ -133,18 +183,24 @@ export default function Dashboard({ ctx }) {
 
     const ins = await supabase
       .from("groups")
-      .insert({
-        name: n,
-        owner_id: ctx.profile.id,
-      })
+      .insert({ name: n, owner_id: ctx.profile.id })
       .select("id")
       .single();
 
     if (ins.error) return setMsg("Criar grupo: " + ins.error.message);
 
+    const gid = ins.data?.id;
+    if (!gid) return setMsg("Grupo criado, mas sem id.");
+
+    // owner entra como membro (se tiveres joined_via, mantém; senão remove)
+    const gm = await supabase
+      .from("group_members")
+      .upsert({ group_id: gid, user_id: ctx.profile.id }, { onConflict: "group_id,user_id" });
+
+    if (gm.error) setMsg("Grupo criado, mas falhou adicionar-te como membro: " + gm.error.message);
+
     setGroupName("");
-    await load();
-    if (ins.data?.id) nav(`/groups/${ins.data.id}`);
+    nav(`/groups/${gid}`);
   }
 
   const rolePill = useMemo(() => {
@@ -158,7 +214,7 @@ export default function Dashboard({ ctx }) {
 
   return (
     <Page>
-      <Header kicker="Menu" title="Grupos" right={rolePill} />
+      <Header kicker="Menu" title="Eventos ativos" right={rolePill} />
 
       {msg && (
         <Card
@@ -172,9 +228,47 @@ export default function Dashboard({ ctx }) {
         </Card>
       )}
 
+      <SectionTitle>Os teus eventos ativos</SectionTitle>
+      <div style={{ display: "grid", gap: 12 }}>
+        {events.length === 0 ? (
+          <Card>
+            <div style={{ color: colors.sub, fontWeight: 800 }}>
+              Não tens eventos ativos.
+            </div>
+            <div style={{ color: colors.sub, fontWeight: 700, marginTop: 6 }}>
+              Se foste convidado, abre o link do convite e confirma.
+            </div>
+          </Card>
+        ) : (
+          events.map((e) => (
+            <Card key={e.id} onClick={() => nav(`/events/${e.id}`)} style={{ cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>{e.title || "Evento"}</div>
+                  <div style={{ color: colors.sub, fontWeight: 700, fontSize: 13, marginTop: 4 }}>
+                    {e.starts_at ? formatDT(e.starts_at) : ""}
+                    {e.location ? ` · ${e.location}` : ""}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+                  <Pill label="🟢 Ativo" tone="green" />
+                  {e.teams_enabled ? <Pill label="⚽ Equipas" tone="gray" /> : null}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10, color: colors.sub, fontWeight: 700, fontSize: 12 }}>
+                Toca para ver confirmados e convite.
+              </div>
+            </Card>
+          ))
+        )}
+      </div>
+
+      {/* Mantém grupos abaixo (opcional) */}
+      <SectionTitle>Grupos</SectionTitle>
+
       {canCreateGroups && (
         <>
-          <SectionTitle>Criar grupo</SectionTitle>
           <Card>
             <Input
               label="Nome do grupo"
@@ -189,8 +283,7 @@ export default function Dashboard({ ctx }) {
         </>
       )}
 
-      <SectionTitle>Os teus grupos</SectionTitle>
-      <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
         {groups.length === 0 ? (
           <Card>
             <div style={{ color: colors.sub, fontWeight: 800 }}>
@@ -202,7 +295,7 @@ export default function Dashboard({ ctx }) {
           </Card>
         ) : (
           groups.map((g) => (
-            <Card key={g.id} onClick={() => nav(`/groups/${g.id}`)}>
+            <Card key={g.id} onClick={() => nav(`/groups/${g.id}`)} style={{ cursor: "pointer" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                 <div>
                   <div style={{ fontWeight: 900, fontSize: 16 }}>{g.name || "Grupo"}</div>

@@ -111,11 +111,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
-  async function logout() {
+async function logout() {
+  try {
     await supabase.auth.signOut();
+  } finally {
+    // força estado limpo no client
     setProfile(null);
+    setSession(null);
     nav("/login", { replace: true });
   }
+}
 
   const ctx = { session, profile, setProfile };
 

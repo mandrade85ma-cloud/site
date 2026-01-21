@@ -1,5 +1,5 @@
 // src/pages/Group.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import {
@@ -10,6 +10,7 @@ import {
   Pill,
   PrimaryButton,
   SectionTitle,
+  GhostButton,
   colors,
 } from "../ui/ui";
 
@@ -33,6 +34,10 @@ function makeToken(len = 18) {
   return out;
 }
 
+function isUuid(v) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ""));
+}
+
 export default function Group({ ctx }) {
   const { groupId } = useParams();
   const nav = useNavigate();
@@ -51,26 +56,34 @@ export default function Group({ ctx }) {
   const [teamsEnabled, setTeamsEnabled] = useState(false);
 
   const role = ctx.profile?.role || "player";
-  const canCreate = role === "admin" || role === "organizer";
+  const isAdmin = role === "admin";
+  const isOrganizer = role === "organizer";
+  const canCreate = isAdmin || isOrganizer;
+
+  const hasActiveEvents = useMemo(() => {
+    return (events || []).some((e) => e.status === "scheduled");
+  }, [events]);
 
   useEffect(() => {
     if (!ctx.session) nav("/login", { replace: true });
-  }, [ctx.session]);
+  }, [ctx.session, nav]);
 
   async function load() {
     setLoading(true);
     setMsg("");
+    setGroup(null);
+    setEvents([]);
 
-    if (!groupId || groupId === "undefined") {
-      setMsg("GroupId inválido.");
+    if (!isUuid(groupId)) {
+      setMsg("Grupo inválido (URL errada).");
       setLoading(false);
       return;
     }
 
-    // 1) grupo
+    // 1) grupo (objeto)
     const g = await supabase
       .from("groups")
-      .select("id,name,organizer_id,created_at")
+      .select("id,name,owner_id,created_at")
       .eq("id", groupId)
       .maybeSingle();
 
@@ -81,22 +94,27 @@ export default function Group({ ctx }) {
     }
 
     if (!g.data) {
-      setMsg("Grupo não encontrado.");
+      setMsg("Grupo não encontrado (ou sem permissões).");
       setLoading(false);
       return;
     }
 
     setGroup(g.data);
 
-    // 2) eventos ativos
+    // 2) eventos ativos do grupo
     const e = await supabase
       .from("events")
-      .select("id,title,starts_at,location,needed_players,status,teams_enabled,invite_token")
+      .select("id,title,starts_at,location,needed_players,status,teams_enabled,invite_token,created_at")
       .eq("group_id", groupId)
       .eq("status", "scheduled")
       .order("starts_at", { ascending: true });
 
-    if (e.error) setMsg((p) => (p ? p + " | " : "") + "Eventos: " + e.error.message);
+    if (e.error) {
+      setMsg((p) => (p ? p + " | " : "") + "Eventos: " + e.error.message);
+      setEvents([]);
+      setLoading(false);
+      return;
+    }
 
     setEvents(e.data || []);
     setLoading(false);
@@ -117,6 +135,7 @@ export default function Group({ ctx }) {
     const t = (title || "").trim();
     if (!t) return setMsg("Mete o título.");
     if (!startsAt) return setMsg("Mete data/hora.");
+
     const loc = (location || "").trim();
     if (!loc) return setMsg("Mete o local.");
 
@@ -125,7 +144,6 @@ export default function Group({ ctx }) {
 
     const inviteToken = makeToken();
 
-    // ✅ insert simples (sem select) para não levares com bloqueios de leitura
     const ins = await supabase.from("events").insert({
       group_id: group.id,
       created_by: ctx.profile.id,
@@ -140,7 +158,6 @@ export default function Group({ ctx }) {
 
     if (ins.error) return setMsg("Criar evento: " + ins.error.message);
 
-    // reset form
     setTitle("");
     setStartsAt("");
     setLocation("");
@@ -151,6 +168,33 @@ export default function Group({ ctx }) {
     setMsg("Evento criado ✅");
   }
 
+  async function deleteGroup() {
+    setMsg("");
+
+    if (!canCreate) return setMsg("Sem permissões para eliminar grupo.");
+    if (!group?.id) return setMsg("Grupo inválido.");
+
+    if (hasActiveEvents) {
+      return setMsg("Não podes eliminar: este grupo tem eventos ativos.");
+    }
+
+    const ok = window.confirm(`Eliminar o grupo "${group.name}"?`);
+    if (!ok) return;
+
+    const { error } = await supabase.rpc("delete_group_if_no_active_events", {
+      p_group_id: group.id,
+    });
+
+    if (error) {
+      if (String(error.message || "").includes("HAS_ACTIVE_EVENTS")) {
+        return setMsg("Não podes eliminar: este grupo tem eventos ativos.");
+      }
+      return setMsg("Eliminar: " + error.message);
+    }
+
+    nav("/dashboard", { replace: true });
+  }
+
   if (!ctx.profile) return <Page><div>A carregar…</div></Page>;
   if (loading) return <Page><div>A carregar…</div></Page>;
 
@@ -159,9 +203,7 @@ export default function Group({ ctx }) {
       <Header
         kicker="Grupo"
         title={group?.name || "Grupo"}
-        right={
-          canCreate ? <Pill label={role.toUpperCase()} tone="dark" /> : <Pill label="PLAYER" tone="gray" />
-        }
+        right={canCreate ? <Pill label={role.toUpperCase()} tone="dark" /> : <Pill label="PLAYER" tone="gray" />}
       />
 
       {msg && (
@@ -258,6 +300,29 @@ export default function Group({ ctx }) {
             </Card>
           ))
         )}
+      </div>
+
+      {/* Gestão do grupo */}
+      {canCreate && (
+        <>
+          <SectionTitle>Gestão</SectionTitle>
+          <Card>
+            
+            <div style={{ marginTop: 1, color: colors.sub, fontWeight: 700 }}>
+            </div>
+
+            <div style={{ marginTop: 1 }}>
+              <PrimaryButton onClick={deleteGroup} disabled={hasActiveEvents}>
+                Eliminar grupo
+              </PrimaryButton>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* Voltar */}
+      <div style={{ marginTop: 18 }}>
+        <GhostButton onClick={() => nav("/dashboard")}>← Voltar ao menu</GhostButton>
       </div>
     </Page>
   );

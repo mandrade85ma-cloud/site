@@ -2,7 +2,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Card, GhostButton, Header, Page, Pill, PrimaryButton, SectionTitle, colors } from "../ui/ui";
+import {
+  Card,
+  GhostButton,
+  Header,
+  Page,
+  Pill,
+  PrimaryButton,
+  SectionTitle,
+  colors,
+} from "../ui/ui";
 
 function formatDT(dt) {
   try {
@@ -106,7 +115,10 @@ export default function EventInvite({ ctx }) {
     setMsg("");
 
     const uid = ctx.session?.user?.id;
-    if (!uid) return nav("/login");
+    if (!uid) {
+      nav("/login", { state: { returnTo: `/e/${token}` } });
+      return;
+    }
 
     if (!event?.id) return setMsg("Convite inválido.");
 
@@ -126,6 +138,9 @@ export default function EventInvite({ ctx }) {
 
     setMyRsvp(value);
     setMsg(value === "accepted" ? "Confirmado ✅" : "Recusado ❌");
+
+    // ✅ força o fluxo certo: agora o dashboard lista por RSVP
+    nav("/dashboard", { replace: true });
   }
 
   useEffect(() => {
@@ -157,18 +172,26 @@ export default function EventInvite({ ctx }) {
   if (loading) return <Page><div>A carregar convite…</div></Page>;
 
   const statusPill =
-    event?.status === "scheduled"
-      ? <Pill label="🟢 Ativo" tone="green" />
-      : event?.status === "cancelled"
-      ? <Pill label="🔴 Cancelado" tone="red" />
-      : <Pill label="⚪ Arquivado" tone="gray" />;
+    event?.status === "scheduled" ? (
+      <Pill label="🟢 Ativo" tone="green" />
+    ) : event?.status === "cancelled" ? (
+      <Pill label="🔴 Cancelado" tone="red" />
+    ) : (
+      <Pill label="⚪ Arquivado" tone="gray" />
+    );
 
   return (
     <Page>
       <Header kicker="Convite" title="Evento" right={statusPill} />
 
       {msg && (
-        <Card style={{ borderRadius: 16, borderColor: "rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.06)" }}>
+        <Card
+          style={{
+            borderRadius: 16,
+            borderColor: "rgba(239,68,68,0.25)",
+            background: "rgba(239,68,68,0.06)",
+          }}
+        >
           <div style={{ fontSize: 13, color: "#991B1B", fontWeight: 800 }}>{msg}</div>
         </Card>
       )}
@@ -176,7 +199,9 @@ export default function EventInvite({ ctx }) {
       {!event ? (
         <Card>
           <div style={{ fontWeight: 900 }}>Convite inválido</div>
-          <div style={{ marginTop: 6, color: colors.sub, fontWeight: 700 }}>O link pode ter expirado.</div>
+          <div style={{ marginTop: 6, color: colors.sub, fontWeight: 700 }}>
+            O link pode ter expirado.
+          </div>
         </Card>
       ) : (
         <>
