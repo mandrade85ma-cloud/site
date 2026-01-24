@@ -9,8 +9,8 @@ import {
   Page,
   Pill,
   PrimaryButton,
-  SectionTitle,
   GhostButton,
+  SectionTitle,
   colors,
 } from "../ui/ui";
 
@@ -60,13 +60,26 @@ export default function Group({ ctx }) {
   const isOrganizer = role === "organizer";
   const canCreate = isAdmin || isOrganizer;
 
-  const hasActiveEvents = useMemo(() => {
-    return (events || []).some((e) => e.status === "scheduled");
-  }, [events]);
-
   useEffect(() => {
     if (!ctx.session) nav("/login", { replace: true });
   }, [ctx.session, nav]);
+
+  function groupInviteUrl() {
+    if (!group?.invite_token) return "";
+    return `${window.location.origin}/g/${group.invite_token}`;
+  }
+
+  async function copyGroupInvite() {
+    setMsg("");
+    const url = groupInviteUrl();
+    if (!url) return setMsg("Este grupo ainda não tem token.");
+    try {
+      await navigator.clipboard.writeText(url);
+      setMsg("Convite do grupo copiado ✅");
+    } catch {
+      window.prompt("Copia o link:", url);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -80,10 +93,10 @@ export default function Group({ ctx }) {
       return;
     }
 
-    // 1) grupo (objeto)
+    // 1) grupo
     const g = await supabase
       .from("groups")
-      .select("id,name,owner_id,created_at")
+      .select("id,name,owner_id,created_at,invite_token")
       .eq("id", groupId)
       .maybeSingle();
 
@@ -104,7 +117,7 @@ export default function Group({ ctx }) {
     // 2) eventos ativos do grupo
     const e = await supabase
       .from("events")
-      .select("id,title,starts_at,location,needed_players,status,teams_enabled,invite_token,created_at")
+      .select("id,title,starts_at,location,needed_players,status,teams_enabled,invite_token,group_id")
       .eq("group_id", groupId)
       .eq("status", "scheduled")
       .order("starts_at", { ascending: true });
@@ -168,29 +181,21 @@ export default function Group({ ctx }) {
     setMsg("Evento criado ✅");
   }
 
+  const hasActiveEvents = useMemo(() => (events || []).length > 0, [events]);
+
   async function deleteGroup() {
     setMsg("");
-
-    if (!canCreate) return setMsg("Sem permissões para eliminar grupo.");
+    if (!canCreate) return setMsg("Sem permissões.");
     if (!group?.id) return setMsg("Grupo inválido.");
 
-    if (hasActiveEvents) {
-      return setMsg("Não podes eliminar: este grupo tem eventos ativos.");
-    }
+    if (hasActiveEvents) return setMsg("Não podes eliminar: existem eventos ativos.");
 
     const ok = window.confirm(`Eliminar o grupo "${group.name}"?`);
     if (!ok) return;
 
-    const { error } = await supabase.rpc("delete_group_if_no_active_events", {
-      p_group_id: group.id,
-    });
+    const del = await supabase.from("groups").delete().eq("id", group.id);
 
-    if (error) {
-      if (String(error.message || "").includes("HAS_ACTIVE_EVENTS")) {
-        return setMsg("Não podes eliminar: este grupo tem eventos ativos.");
-      }
-      return setMsg("Eliminar: " + error.message);
-    }
+    if (del.error) return setMsg("Eliminar grupo: " + del.error.message);
 
     nav("/dashboard", { replace: true });
   }
@@ -203,7 +208,9 @@ export default function Group({ ctx }) {
       <Header
         kicker="Grupo"
         title={group?.name || "Grupo"}
-        right={canCreate ? <Pill label={role.toUpperCase()} tone="dark" /> : <Pill label="PLAYER" tone="gray" />}
+        right={
+          canCreate ? <Pill label={role.toUpperCase()} tone="dark" /> : <Pill label="PLAYER" tone="gray" />
+        }
       />
 
       {msg && (
@@ -218,6 +225,25 @@ export default function Group({ ctx }) {
         </Card>
       )}
 
+      {/* Convite do grupo (admin/organizer) */}
+      {canCreate && (
+        <>
+          <SectionTitle>Convite do grupo</SectionTitle>
+          <Card>
+            <div style={{ fontWeight: 900 }}>Link do grupo</div>
+            <div style={{ marginTop: 6, color: colors.sub, fontWeight: 800, wordBreak: "break-all" }}>
+              {group?.invite_token ? groupInviteUrl() : "— (sem token)"}
+            </div>
+            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+              <PrimaryButton onClick={copyGroupInvite} disabled={!group?.invite_token}>
+                Copiar link do grupo
+              </PrimaryButton>
+            </div>
+          </Card>
+        </>
+      )}
+
+      {/* Criar evento */}
       {canCreate && (
         <>
           <SectionTitle>Criar evento</SectionTitle>
@@ -270,6 +296,7 @@ export default function Group({ ctx }) {
         </>
       )}
 
+      {/* Eventos ativos */}
       <SectionTitle>Eventos ativos</SectionTitle>
       <div style={{ display: "grid", gap: 12 }}>
         {events.length === 0 ? (
@@ -302,28 +329,33 @@ export default function Group({ ctx }) {
         )}
       </div>
 
-      {/* Gestão do grupo */}
+      {/* Eliminar grupo (só se não houver eventos ativos) */}
       {canCreate && (
         <>
           <SectionTitle>Gestão</SectionTitle>
           <Card>
-            
-            <div style={{ marginTop: 1, color: colors.sub, fontWeight: 700 }}>
+            <div style={{ color: colors.sub, fontWeight: 800 }}>
+              {hasActiveEvents
+                ? "Não podes eliminar: existem eventos ativos."
+                : "Podes eliminar este grupo (não há eventos ativos)."}
             </div>
 
-            <div style={{ marginTop: 1 }}>
-              <PrimaryButton onClick={deleteGroup} disabled={hasActiveEvents}>
-                Eliminar grupo
-              </PrimaryButton>
+            <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+              <GhostButton onClick={deleteGroup} disabled={hasActiveEvents}>
+                🗑️ Eliminar grupo
+              </GhostButton>
+              <GhostButton onClick={() => nav("/dashboard")}>⬅️ Voltar ao Menu</GhostButton>
             </div>
           </Card>
         </>
       )}
 
-      {/* Voltar */}
-      <div style={{ marginTop: 18 }}>
-        <GhostButton onClick={() => nav("/dashboard")}>← Voltar ao menu</GhostButton>
-      </div>
+      {/* Se for player, ainda assim dá botão voltar */}
+      {!canCreate && (
+        <div style={{ marginTop: 14 }}>
+          <GhostButton onClick={() => nav("/dashboard")}>⬅️ Voltar ao Menu</GhostButton>
+        </div>
+      )}
     </Page>
   );
 }

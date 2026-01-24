@@ -204,6 +204,7 @@ async function logout() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/reset" element={<ResetPassword />} />
         <Route path="*" element={<div>404</div>} />
+        
       </Routes>
     </div>
   );
