@@ -1,6 +1,5 @@
-// src/App.jsx
 import { useEffect, useState } from "react";
-import { Routes, Route, Link, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabase";
 
 import ResetPassword from "./pages/ResetPassword";
@@ -15,11 +14,17 @@ import EventInvite from "./pages/EventInvite";
 import EventTeams from "./pages/EventTeams";
 import EventTeamsView from "./pages/EventTeamsView";
 
-import logo from "./assets/joga-logo.png";
-
 function isUuid(v) {
   if (!v || typeof v !== "string") return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+function Loader() {
+  return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#f5f6f2" }}>
+      <div style={{ fontFamily:"'Syne',sans-serif", fontSize:18, color:"#22a050" }}>A carregar...</div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -28,7 +33,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [booting, setBooting] = useState(true);
 
-  // ✅ trocar ?code= por sessão (PKCE)
+  // PKCE code exchange
   useEffect(() => {
     (async () => {
       const url = new URL(window.location.href);
@@ -43,169 +48,79 @@ export default function App() {
     })();
   }, []);
 
-  // ✅ sessão
+  // Sessão
   useEffect(() => {
     let mounted = true;
-
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       setSession(data.session ?? null);
     });
-
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s ?? null);
     });
-
-    return () => {
-      mounted = false;
-      sub.subscription.unsubscribe();
-    };
+    return () => { mounted = false; sub.subscription.unsubscribe(); };
   }, []);
 
-  // ✅ profile (à prova de "undefined")
+  // Profile
   useEffect(() => {
     (async () => {
       setBooting(true);
-
       const uid = session?.user?.id;
-
-      // sem sessão -> limpa e segue
       if (!uid || !isUuid(uid)) {
         setProfile(null);
         setBooting(false);
         return;
       }
-
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", uid)
         .maybeSingle();
-
       if (error) {
         console.error("[profiles select] error:", error);
         setProfile(null);
         setBooting(false);
         return;
       }
-
-      if (!data) {
-        // não existe profile ainda -> onboarding
-        setProfile(null);
+      if (!data || !data.name || data.name.trim().length < 2) {
+        setProfile(data ?? null);
         setBooting(false);
         nav("/onboarding", { replace: true });
         return;
       }
-
-      // existe, mas sem nome -> onboarding
-      if (!data.name || data.name.trim().length < 2) {
-        setProfile(data);
-        setBooting(false);
-        nav("/onboarding", { replace: true });
-        return;
-      }
-
       setProfile(data);
       setBooting(false);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
-async function logout() {
-  try {
-    await supabase.auth.signOut();
-  } finally {
-    // força estado limpo no client
-    setProfile(null);
-    setSession(null);
-    nav("/login", { replace: true });
+  async function logout() {
+    try { await supabase.auth.signOut(); }
+    finally {
+      setProfile(null);
+      setSession(null);
+      nav("/login", { replace: true });
+    }
   }
-}
 
-  const ctx = { session, profile, setProfile };
+  const ctx = { session, profile, setProfile, logout };
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-      <header
-  style={{
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "8px 0",
-  }}
->
-  {/* LOGO */}
-  <div
-    onClick={() => nav("/dashboard")}
-    style={{
-      display: "flex",
-      alignItems: "center",
-      cursor: "pointer",
-    }}
-  >
-    <img
-      src={logo}
-      alt="JOGA"
-      style={{
-        height: 90,
-        width: "auto",
-        display: "block",
-      }}
-    />
-  </div>
+    <Routes>
+      <Route path="/"          element={<Navigate to="/dashboard" replace />} />
+      <Route path="/login"     element={<Login ctx={ctx} />} />
+      <Route path="/onboarding" element={<Onboarding ctx={ctx} />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/reset"     element={<ResetPassword />} />
 
-  {/* AÇÕES */}
-  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-    {session ? (
-      <>
-        <span style={{ opacity: 0.7, fontSize: 14 }}>{profile?.name}</span>
-        <button onClick={logout}>Sair</button>
-      </>
-    ) : (
-      <button onClick={() => nav("/login")}>Login</button>
-    )}
-  </div>
-</header>
-
-      <hr />
-
-
-      <Routes>
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="/login" element={<Login ctx={ctx} />} />
-        <Route path="/onboarding" element={<Onboarding ctx={ctx} />} />
-
-        {/* ✅ se ainda está a arrancar profile, evita páginas “a meio” */}
-        <Route
-          path="/dashboard"
-          element={
-            booting ? (
-              <div style={{ padding: 20 }}>A carregar…</div>
-            ) : (
-              <Dashboard ctx={ctx} />
-            )
-          }
-        />
-
-        <Route
-          path="/groups/:groupId"
-          element={booting ? <div style={{ padding: 20 }}>A carregar…</div> : <Group ctx={ctx} />}
-        />
-
-        <Route
-          path="/events/:eventId"
-          element={booting ? <div style={{ padding: 20 }}>A carregar…</div> : <EventDetail ctx={ctx} />}
-        />
-
-        <Route path="/events/:eventId/teams" element={<EventTeams ctx={ctx} />} />
-        <Route path="/e/:token" element={<EventInvite ctx={ctx} />} />
-        <Route path="/g/:token" element={<GroupInvite ctx={ctx} />} />
-        <Route path="/events/:eventId/teams-view" element={<EventTeamsView ctx={ctx} />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
-        <Route path="/reset" element={<ResetPassword />} />
-        <Route path="*" element={<div>404</div>} />
-        
-      </Routes>
-    </div>
+      <Route path="/dashboard" element={booting ? <Loader /> : <Dashboard ctx={ctx} />} />
+      <Route path="/groups/:groupId"   element={booting ? <Loader /> : <Group ctx={ctx} />} />
+      <Route path="/events/:eventId"   element={booting ? <Loader /> : <EventDetail ctx={ctx} />} />
+      <Route path="/events/:eventId/teams"      element={<EventTeams ctx={ctx} />} />
+      <Route path="/events/:eventId/teams-view" element={<EventTeamsView ctx={ctx} />} />
+      <Route path="/e/:token"  element={<EventInvite ctx={ctx} />} />
+      <Route path="/g/:token"  element={<GroupInvite ctx={ctx} />} />
+      <Route path="*"          element={<div style={{ padding:40, textAlign:"center", fontFamily:"sans-serif" }}>404 — Página não encontrada</div>} />
+    </Routes>
   );
 }

@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --green: #1a7a3c; --green-mid: #22a050; --green-light: #e8f5ee;
+  --pitch: #0e5c2a; --accent: #f0c233; --bg: #f5f6f2; --card: #ffffff;
+  --text: #111410; --muted: #6b7068; --border: #e2e5de;
+  --orange: #d4621a; --radius: 16px; --r-sm: 10px;
+}
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+import './styles/theme.css'
+button { font-family: inherit; cursor: pointer; }
+input, textarea, select { font-family: inherit; }
