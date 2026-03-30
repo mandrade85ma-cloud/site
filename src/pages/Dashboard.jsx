@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { Card, GhostButton, Input, Page, PrimaryButton, SectionTitle, ScorePill, BottomNav, colors } from "../ui/ui";
+import { Card, SectionTitle, ScorePill, BottomNav, colors } from "../ui/ui";
 
 function initials(name = "") {
   return name.split(" ").map(w => w[0]).join("").slice(0,2).toUpperCase();
@@ -27,8 +27,6 @@ export default function Dashboard({ ctx }) {
   const [confirmed, setConfirmed] = useState(0);
   const [myRsvp,    setMyRsvp]    = useState(null);
   const [urgente,   setUrgente]   = useState(null);
-  const [newGroup,  setNewGroup]  = useState("");
-  const [creating,  setCreating]  = useState(false);
   const [loading,   setLoading]   = useState(true);
 
   useEffect(() => { loadData(); }, [profile?.id]);
@@ -37,7 +35,6 @@ export default function Dashboard({ ctx }) {
     if (!profile?.id) return;
     setLoading(true);
 
-    // Grupos
     const { data: gm } = await supabase
       .from("group_members")
       .select("group_id, groups(id,name,created_at,owner_id,invite_token)")
@@ -52,7 +49,6 @@ export default function Dashboard({ ctx }) {
     }));
     setGroups(groupsData);
 
-    // Próximo evento
     const groupIds = (gm ?? []).map(r => r.group_id);
     if (groupIds.length) {
       const { data: evs } = await supabase
@@ -89,21 +85,6 @@ export default function Dashboard({ ctx }) {
     );
   }
 
-  async function handleCreateGroup() {
-    if (!newGroup.trim() || !profile?.id) return;
-    setCreating(true);
-    const token = Math.random().toString(36).slice(2,10);
-    const { data: g } = await supabase.from("groups")
-      .insert({ name: newGroup.trim(), owner_id: profile.id, invite_token: token })
-      .select().single();
-    if (g) {
-      await supabase.from("group_members")
-        .insert({ group_id: g.id, user_id: profile.id, joined_via: "created" });
-      setGroups(prev => [...prev, { ...g, eventCount: 0, isOwner: true }]);
-    }
-    setNewGroup(""); setCreating(false);
-  }
-
   if (loading) return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:"#f5f6f2" }}>
       <div style={{ fontFamily:"'Syne',sans-serif", fontSize:18, color:"#22a050" }}>A carregar...</div>
@@ -116,13 +97,12 @@ export default function Dashboard({ ctx }) {
   const atiScore = profile?.ati_score ?? 0;
 
   return (
-    <div style={{ fontFamily:"'DM Sans',sans-serif", maxWidth:480, margin:"0 auto", minHeight:"100vh", background:"#f5f6f2", display:"flex", flexDirection:"column" }}>
+    <div className="page-container" style={{ fontFamily:"'DM Sans',sans-serif", background:"#f5f6f2", display:"flex", flexDirection:"column", minHeight:"100vh" }}>
 
       {/* ── HEADER ── */}
-      <div style={{ background:"#0e5c2a", padding:"18px 20px 0", position:"relative", overflow:"hidden" }}>
+      <div style={{ background:"#0e5c2a", padding:"18px 20px 0", position:"relative", overflow:"hidden", flexShrink:0 }}>
         <div style={{ position:"absolute", inset:0, background:"radial-gradient(ellipse at 80% 0%,#1a7a3c55 0%,transparent 60%)", pointerEvents:"none" }} />
 
-        {/* Top bar */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", position:"relative" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <div style={{ width:34, height:34, background:"#22a050", borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:16, color:"#fff" }}>J</div>
@@ -139,7 +119,6 @@ export default function Dashboard({ ctx }) {
           </div>
         </div>
 
-        {/* Hero */}
         <div style={{ padding:"18px 0 0", position:"relative" }}>
           <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:16 }}>
             <div>
@@ -157,7 +136,6 @@ export default function Dashboard({ ctx }) {
             </div>
           </div>
 
-          {/* Score pills */}
           <div style={{ display:"flex", gap:8, paddingBottom:18 }}>
             <ScorePill type="rep" level={repLevel} score={repScore} />
             <ScorePill type="ati" level={atiLevel} score={atiScore} />
@@ -165,8 +143,8 @@ export default function Dashboard({ ctx }) {
         </div>
       </div>
 
-      {/* ── STATS STRIP ── */}
-      <div style={{ display:"flex", background:"#fff", borderBottom:"1px solid #e2e5de" }}>
+      {/* ── STATS ── */}
+      <div style={{ display:"flex", background:"#fff", borderBottom:"1px solid #e2e5de", flexShrink:0 }}>
         {[
           { val: groups.length,                              lbl:"Grupos",      color:"#22a050" },
           { val: groups.reduce((a,g) => a+g.eventCount, 0), lbl:"Eventos",     color:"#22a050" },
@@ -182,7 +160,7 @@ export default function Dashboard({ ctx }) {
 
       {/* ── ALERTA URGENTE ── */}
       {urgente && (
-        <div style={{ background:"#d4621a", margin:"14px 14px 0", borderRadius:14, padding:"13px 15px", position:"relative", overflow:"hidden" }}>
+        <div style={{ background:"#d4621a", margin:"14px 14px 0", borderRadius:14, padding:"13px 15px", position:"relative", overflow:"hidden", flexShrink:0 }}>
           <div style={{ position:"absolute", right:-20, top:-20, width:80, height:80, border:"2px solid rgba(255,255,255,0.1)", borderRadius:"50%" }} />
           <div style={{ fontSize:10, fontWeight:700, color:"rgba(255,255,255,0.7)", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:3 }}>
             Plantel incompleto · Urgente
@@ -211,7 +189,7 @@ export default function Dashboard({ ctx }) {
 
         {/* PRÓXIMO EVENTO */}
         <div>
-          <SectionTitle right="Criar →" onClick={() => navigate("/events/new")}>Próximo evento</SectionTitle>
+          <SectionTitle>Próximo evento</SectionTitle>
           {nextEvent ? (
             <div onClick={() => navigate("/events/" + nextEvent.id)}
               style={{ background:"#0e5c2a", borderRadius:14, padding:"14px 16px", position:"relative", overflow:"hidden", cursor:"pointer" }}>
@@ -220,13 +198,13 @@ export default function Dashboard({ ctx }) {
                 {fmtDate(nextEvent.starts_at)} · {nextEvent.groups?.name}
               </div>
               <div style={{ fontFamily:"'Syne',sans-serif", fontSize:17, fontWeight:800, color:"#fff" }}>{nextEvent.title}</div>
-              <div style={{ fontSize:12, color:"rgba(255,255,255,0.55)", marginTop:5, display:"flex", gap:10 }}>
+              <div style={{ fontSize:12, color:"rgba(255,255,255,0.55)", marginTop:5, display:"flex", gap:10, flexWrap:"wrap" }}>
                 <span>📍 {nextEvent.location}</span>
                 <span>🕙 {new Date(nextEvent.starts_at).toLocaleTimeString("pt-PT",{hour:"2-digit",minute:"2-digit"})}</span>
               </div>
-              <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:10 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:5, marginTop:10, flexWrap:"wrap" }}>
                 <span style={{ fontSize:11, color:"rgba(255,255,255,0.5)" }}>Vagas:</span>
-                <div style={{ display:"flex", gap:3 }}>
+                <div style={{ display:"flex", gap:3, flexWrap:"wrap" }}>
                   {Array.from({ length: nextEvent.needed_players }).map((_,i) => (
                     <div key={i} style={{ width:8, height:8, borderRadius:"50%",
                       background: i < confirmed ? "#22a050" : "rgba(255,255,255,0.18)",
@@ -247,10 +225,10 @@ export default function Dashboard({ ctx }) {
               </div>
             </div>
           ) : (
-            <Card style={{ textAlign:"center", padding:"28px 20px" }}>
+            <Card style={{ textAlign:"center", padding:"28px 20px", border:"1.5px dashed #e2e5de" }}>
               <div style={{ fontSize:28, marginBottom:10 }}>🗓️</div>
               <div style={{ fontSize:14, fontWeight:500, marginBottom:4 }}>Sem eventos confirmados</div>
-              <div style={{ fontSize:13, color:colors.muted }}>Cria um evento ou entra num grupo via convite.</div>
+              <div style={{ fontSize:13, color:colors.muted }}>Entra num grupo para veres os eventos.</div>
             </Card>
           )}
         </div>
@@ -268,13 +246,13 @@ export default function Dashboard({ ctx }) {
               <Card key={g.id} onClick={() => navigate("/groups/" + g.id)} style={{ position:"relative", overflow:"hidden" }}>
                 <div style={{ position:"absolute", left:0, top:0, bottom:0, width:3, background:"#22a050", borderRadius:"3px 0 0 3px" }} />
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:9 }}>
-                  <div>
-                    <div style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700 }}>{g.name}</div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{g.name}</div>
                     <div style={{ fontSize:11, color:colors.muted, marginTop:2 }}>
                       Criado {new Date(g.created_at).toLocaleDateString("pt-PT",{day:"numeric",month:"short"})}
                     </div>
                   </div>
-                  <span style={{ fontSize:11, fontWeight:500, padding:"3px 9px", borderRadius:20, background:"#e8f5ee", color:"#1a7a3c" }}>
+                  <span style={{ fontSize:11, fontWeight:500, padding:"3px 9px", borderRadius:20, background:"#e8f5ee", color:"#1a7a3c", flexShrink:0, marginLeft:8 }}>
                     {g.isOwner ? "Dono" : "Membro"}
                   </span>
                 </div>
@@ -288,44 +266,17 @@ export default function Dashboard({ ctx }) {
             ))}
           </div>
         </div>
-
-        {/* CRIAR GRUPO */}
-        <div>
-          <SectionTitle>Criar grupo</SectionTitle>
-          <Card>
-            <Input label="Nome do grupo" value={newGroup} onChange={e => setNewGroup(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleCreateGroup()}
-              placeholder="Ex: Albogas 6F" />
-            <div style={{ marginTop:10 }}>
-              <PrimaryButton onClick={handleCreateGroup} disabled={creating || !newGroup.trim()}>
-                {creating ? "A criar..." : "Criar grupo"}
-              </PrimaryButton>
-            </div>
-          </Card>
-        </div>
-
-        {/* INVITE BANNER */}
-        {groups.length > 0 && (
-          <div style={{ background:"#0e5c2a", borderRadius:14, padding:"14px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, marginBottom:8 }}>
-            <div>
-              <div style={{ fontFamily:"'Syne',sans-serif", fontSize:13, fontWeight:700, color:"#fff" }}>Convidar jogadores</div>
-              <div style={{ fontSize:11, color:"rgba(255,255,255,0.5)", marginTop:2 }}>Partilha o link do teu grupo</div>
-            </div>
-            <button onClick={() => navigate("/groups/" + groups[0]?.id)}
-              style={{ background:"#f0c233", color:"#3a2800", border:"none", fontSize:12, fontWeight:700, fontFamily:"'Syne',sans-serif", padding:"8px 14px", borderRadius:8, cursor:"pointer" }}>
-              Ver grupos
-            </button>
-          </div>
-        )}
       </div>
 
       <BottomNav active="home" firstGroupId={groups[0]?.id} />
 
-      {/* FAB */}
-      <button onClick={() => navigate("/groups/" + groups[0]?.id)}
-        style={{ position:"fixed", bottom:68, right:18, width:48, height:48, borderRadius:"50%", background:"#22a050", color:"#fff", border:"none", fontSize:22, boxShadow:"0 4px 16px rgba(26,122,60,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:10, cursor:"pointer" }}>
-        +
-      </button>
+      {/* FAB — abre o primeiro grupo para criar evento */}
+      {groups.length > 0 && (
+        <button onClick={() => navigate("/groups/" + groups[0]?.id)}
+          style={{ position:"fixed", bottom:68, right:18, width:48, height:48, borderRadius:"50%", background:"#22a050", color:"#fff", border:"none", fontSize:22, boxShadow:"0 4px 16px rgba(26,122,60,0.35)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:10, cursor:"pointer" }}>
+          +
+        </button>
+      )}
     </div>
   );
 }
