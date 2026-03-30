@@ -47,11 +47,11 @@ export function Card({ children, onClick, style }) {
   );
 }
 
-export function SectionTitle({ children, right }) {
+export function SectionTitle({ children, right, onClick }) {
   return (
     <div style={{ marginTop:16, marginBottom:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
       <div style={{ fontSize:14, fontWeight:700, color:colors.text, fontFamily:"'Syne',system-ui,sans-serif" }}>{children}</div>
-      {right && <div style={{ fontSize:12, color:colors.green, fontWeight:500, cursor:"pointer" }}>{right}</div>}
+      {right && <div onClick={onClick} style={{ fontSize:12, color:colors.green, fontWeight:500, cursor:"pointer" }}>{right}</div>}
     </div>
   );
 }
@@ -97,33 +97,73 @@ export function Input({ label, ...props }) {
   return (
     <div style={{ marginTop:10 }}>
       {label && <div style={{ fontSize:11, fontWeight:500, color:colors.muted, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>{label}</div>}
-      <input {...props} style={{ width:"100%", height:44, borderRadius:9, border:`1.5px solid ${colors.line}`, padding:"0 14px", outline:"none", fontSize:14, color:colors.text, background:"#fafbf9", fontFamily:"inherit", transition:"border-color .15s", ...props.style }}
-        onFocus={e => e.target.style.borderColor=colors.green}
-        onBlur={e  => e.target.style.borderColor=colors.line} />
+      <input {...props} style={{ width:"100%", height:44, borderRadius:9, border:`1.5px solid ${colors.line}`, padding:"0 14px", outline:"none", fontSize:14, color:colors.text, background:"#fafbf9", fontFamily:"inherit", transition:"border-color .15s", boxSizing:"border-box", ...props.style }}
+        onFocus={e => { e.target.style.borderColor=colors.green; props.onFocus?.(e); }}
+        onBlur={e  => { e.target.style.borderColor=colors.line;  props.onBlur?.(e);  }} />
     </div>
   );
 }
 
-export function BottomNav({ active }) {
+/* ── BottomNav ─────────────────────────────────────────
+   Usa apenas rotas que existem no App.jsx:
+   /dashboard, /groups/:id (primeiro grupo), /onboarding
+   Os botões sem rota mostram um aviso amigável.
+──────────────────────────────────────────────────────── */
+export function BottomNav({ active, firstGroupId }) {
+  function go(path) {
+    if (path) window.location.href = path;
+  }
+
   const items = [
-    { id:"home",          icon:"🏠", label:"Início",  path:"/dashboard" },
-    { id:"events",        icon:"📅", label:"Eventos", path:"/events/new" },
-    { id:"notifications", icon:"🔔", label:"Alertas", path:"/notifications" },
-    { id:"profile",       icon:"👤", label:"Perfil",  path:"/profile" },
+    {
+      id: "home",
+      icon: "🏠",
+      label: "Início",
+      path: "/dashboard",
+    },
+    {
+      id: "group",
+      icon: "👥",
+      label: "Grupo",
+      path: firstGroupId ? `/groups/${firstGroupId}` : null,
+    },
+    {
+      id: "invite",
+      icon: "🔗",
+      label: "Convidar",
+      path: null,
+      action: () => {
+        if (firstGroupId) window.location.href = `/groups/${firstGroupId}`;
+      },
+    },
+    {
+      id: "profile",
+      icon: "👤",
+      label: "Perfil",
+      path: "/onboarding",
+    },
   ];
+
   return (
     <div style={{ background:"#fff", borderTop:`1px solid ${colors.line}`, display:"flex", padding:"8px 0 4px", position:"sticky", bottom:0, zIndex:20 }}>
-      {items.map(item => (
-        <div key={item.id} onClick={() => window.location.href=item.path}
-          style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer", padding:"4px 0" }}>
-          <div style={{ fontSize:19, lineHeight:1 }}>{item.icon}</div>
-          <div style={{ fontSize:10, color:active===item.id?colors.green:colors.muted, fontWeight:active===item.id?500:400 }}>{item.label}</div>
-        </div>
-      ))}
+      {items.map(item => {
+        const isActive = active === item.id;
+        return (
+          <div key={item.id}
+            onClick={() => item.action ? item.action() : go(item.path)}
+            style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:3, cursor:"pointer", padding:"4px 0", opacity: (!item.path && !item.action) ? 0.4 : 1 }}>
+            <div style={{ fontSize:19, lineHeight:1 }}>{item.icon}</div>
+            <div style={{ fontSize:10, color: isActive ? colors.green : colors.muted, fontWeight: isActive ? 500 : 400 }}>
+              {item.label}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+/* ── ScorePill ──────────────────────────────────────── */
 const LEVEL_COLORS = { 1:"#888780", 2:"#378ADD", 3:"#22a050", 4:"#BA7517", 5:"#D4537E" };
 const LEVEL_EMOJIS = { 1:"🌱", 2:"⚡", 3:"🏅", 4:"🥇", 5:"👑" };
 const LEVEL_LABELS = { 1:"Iniciante", 2:"Regular", 3:"Veterano", 4:"Elite", 5:"Lenda" };
@@ -132,7 +172,7 @@ export function ScorePill({ type, level=1, score=0, onClick }) {
   const color = LEVEL_COLORS[level];
   const label = type==="rep" ? "Reputação" : "Atitude";
   return (
-    <div onClick={onClick} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:"rgba(255,255,255,0.10)", border:"1px solid rgba(255,255,255,0.14)", borderRadius:10, padding:"8px 12px", cursor:"pointer" }}>
+    <div onClick={onClick} style={{ flex:1, display:"flex", alignItems:"center", gap:8, background:"rgba(255,255,255,0.10)", border:"1px solid rgba(255,255,255,0.14)", borderRadius:10, padding:"8px 12px", cursor:onClick?"pointer":"default" }}>
       <span style={{ fontSize:18 }}>{LEVEL_EMOJIS[level]}</span>
       <div style={{ flex:1 }}>
         <div style={{ fontSize:10, color:"rgba(255,255,255,0.45)", textTransform:"uppercase", letterSpacing:"0.07em" }}>{label}</div>

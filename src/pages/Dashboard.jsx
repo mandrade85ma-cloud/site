@@ -319,7 +319,7 @@ export default function Dashboard({ ctx }) {
         )}
       </div>
 
-      <BottomNav active="home" />
+      <BottomNav active="home" firstGroupId={groups[0]?.id} />
 
       {/* FAB */}
       <button onClick={() => navigate("/groups/" + groups[0]?.id)}
